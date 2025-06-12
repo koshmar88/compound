@@ -2,7 +2,6 @@ import os
 import time
 import schedule
 from web3 import Web3
-from telegram import Bot
 from dotenv import load_dotenv
 import asyncio
 
@@ -2188,7 +2187,6 @@ COMET_ABI = [
 contract = w3.eth.contract(address=COMET_PROXY_ADDRESS, abi=COMET_ABI)
 
 # Настройка Telegram бота
-bot = Bot(token=TELEGRAM_BOT_TOKEN)
 last_hf = None
 def get_health_factor():
     try:
@@ -2238,19 +2236,18 @@ def get_health_factor():
         print(f"Ошибка при расчёте HF: {e}")
         return None
 
-async def send_notification(message):
+async def send_notification(message, application):
     try:
-        await bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=message)
+        await application.bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=message)
         print(f"Отправлено сообщение в Telegram: {message}")
     except Exception as e:
         print(f"Ошибка отправки сообщения в Telegram: {e}")
 
-def monitor():
+async def monitor(application):
     global last_hf
     hf = get_health_factor()
     if hf is None:
         return
-    # Уведомлять если HF изменился на 0.2 или больше (в любую сторону)
     if last_hf is not None and abs(hf - last_hf) >= 0.2:
         direction = "снизился" if hf < last_hf else "вырос"
         message = (
@@ -2259,17 +2256,19 @@ def monitor():
             f"Стало: {hf:.2f}\n"
             f"Разница: {abs(hf - last_hf):.2f}\n"
         )
-        asyncio.run(send_notification(message))
+        await send_notification(message, application)
     last_hf = hf
 
-# Планировщик
-schedule.every(5).minutes.do(monitor)
-
-
-last_hf = None
-
-import threading
-from telegram.ext import Application, CommandHandler
+def run_scheduler(application):
+    print("Запуск мониторинга Health Factor для Compound III...")
+    # Немедленный вызов для проверки
+    asyncio.run(monitor(application))
+    while True:
+        try:
+            schedule.run_pending()
+            time.sleep(1)
+        except Exception as e:
+            print(f"Ошибка в основном цикле: {e}")
 
 async def hf_command(update, context):
     hf = get_health_factor()
@@ -2278,78 +2277,24 @@ async def hf_command(update, context):
     else:
         await update.message.reply_text("Не удалось получить Health Factor.")
 
-def run_telegram_bot():
-    application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
-    application.add_handler(CommandHandler("hf", hf_command))
-    application.add_handler(CommandHandler("info", info_command)) 
-    application.run_polling()
-
-def run_scheduler():
-    print("Запуск мониторинга Health Factor для Compound III...")
-    monitor()  # Немедленный вызов для проверки
-    while True:
-        try:
-            schedule.run_pending()
-            time.sleep(1)
-        except Exception as e:
-            print(f"Ошибка в основном цикле: {e}")
-
-def get_full_report():
-    try:
-        borrow_value = contract.functions.borrowBalanceOf(USER_ADDRESS).call()
-        borrow_value_usdt = borrow_value / 1e6
-        report = f"💳 <b>Общая сумма займа:</b> <code>{borrow_value_usdt:.2f} USDT</code>\n\n"
-
-        target_assets = {
-            Web3.to_checksum_address("0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"): {"name": "WETH", "decimals": 18, "emoji": "🟠"},
-            Web3.to_checksum_address("0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599"): {"name": "WBTC", "decimals": 8, "emoji": "🟡"},
-            Web3.to_checksum_address("0x7f39c581f595b53c5cb19bd0b3f8da6c935e2ca0"): {"name": "wstETH", "decimals": 18, "emoji": "🔵"},
-        }
-
-        collateral_value = 0
-        report += "<b>Залог:</b>\n"
-        for asset, info in target_assets.items():
-            try:
-                asset_info = contract.functions.getAssetInfoByAddress(asset).call()
-                price_feed = asset_info[2]
-                decimals = info["decimals"]
-                name = info["name"]
-                emoji = info["emoji"]
-                collateral_factor = asset_info[4] / 1e18
-
-                balance = contract.functions.collateralBalanceOf(USER_ADDRESS, asset).call()
-                price = contract.functions.getPrice(price_feed).call()
-
-                balance_token = balance / (10 ** decimals)
-                price_usdt = price / 1e8
-                usd_value = balance_token * price_usdt * collateral_factor
-
-                report += (
-                    f"{emoji} <b>{name}</b>: <code>{balance_token:.6f}</code> × <code>{price_usdt:.2f}</code> × "
-                    f"<code>{collateral_factor:.3f}</code> = <b><code>{usd_value:.2f} USDT</code></b>\n"
-                )
-                collateral_value += usd_value
-            except Exception as e:
-                report += f"{info['name']}: ошибка получения данных ({e})\n"
-
-        report += f"\n<b>Общая стоимость залога:</b> <code>{collateral_value:.2f} USDT</code>\n"
-        hf = collateral_value / borrow_value_usdt if borrow_value_usdt > 0 else float('inf')
-        report += f"\n<b>Health Factor:</b> <code>{hf:.2f}</code>"
-        return report
-    except Exception as e:
-        return f"Ошибка при формировании отчёта: {e}"
-
-# ...existing code...
-
 async def info_command(update, context):
     report = get_full_report()
     await update.message.reply_text(report, parse_mode="HTML")
+
+def run_telegram_bot():
+    application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
+    application.add_handler(CommandHandler("hf", hf_command))
+    application.add_handler(CommandHandler("info", info_command))
+    # Планировщик с передачей application
+    schedule.every(5).minutes.do(lambda: asyncio.run(monitor(application)))
+    # Запуск планировщика в отдельном потоке
+    scheduler_thread = threading.Thread(target=run_scheduler, args=(application,), daemon=True)
+    scheduler_thread.start()
+    application.run_polling()
+
 if __name__ == "__main__":
     # Запуск Flask в отдельном потоке
     flask_thread = threading.Thread(target=start_flask, daemon=True)
     flask_thread.start()
-    # Запуск планировщика в отдельном потоке
-    scheduler_thread = threading.Thread(target=run_scheduler, daemon=True)
-    scheduler_thread.start()
-    # Запуск Telegram-бота (блокирует основной поток)
+    # Запуск Telegram-бота (и планировщика внутри него)
     run_telegram_bot()
