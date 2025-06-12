@@ -2248,7 +2248,7 @@ async def monitor(application):
     hf = get_health_factor()
     if hf is None:
         return
-    if last_hf is not None and abs(hf - last_hf) >= 0.2:
+    if last_hf is not None and abs(hf - last_hf) >= 0.02:
         direction = "снизился" if hf < last_hf else "вырос"
         message = (
             f"⚠️ Health Factor {direction}!\n"
