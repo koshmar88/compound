@@ -6,6 +6,20 @@ from telegram import Bot
 from dotenv import load_dotenv
 import asyncio
 
+from flask import Flask
+import threading
+
+app = Flask(__name__)
+
+@app.route("/")
+def index():
+    return "Bot is running!"
+
+def start_flask():
+    # Render обычно использует переменную PORT, иначе 10000
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host="0.0.0.0", port=port)
+
 # Загрузка переменных окружения
 load_dotenv()
 ALCHEMY_API_KEY = os.getenv("ALCHEMY_API_KEY")
@@ -2224,30 +2238,12 @@ def get_health_factor():
         print(f"Ошибка при расчёте HF: {e}")
         return None
 
-
-    hf_float = hf  # Не делите на 1e18!
-    print(f"Текущий Health Factor: {hf_float:.2f}")
-
-    if last_hf is None:
-        last_hf_str = "N/A (первый запуск)"
-    else:
-        last_hf_str = f"{last_hf:.2f}"
-
-    if last_hf is None or abs(hf_float - last_hf) >= 0.1:
-        message = f"⚠️ Health Factor changed: {last_hf_str} -> {hf_float:.2f}"
-        if hf_float < 1.5:
-            message += "\n🚨 Warning: HF below 1.5! Consider adding collateral."
-        asyncio.run(send_notification(message))
-    last_hf = hf
-
 async def send_notification(message):
     try:
         await bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=message)
         print(f"Отправлено сообщение в Telegram: {message}")
     except Exception as e:
         print(f"Ошибка отправки сообщения в Telegram: {e}")
-
-last_hf = None  # глобальная переменная
 
 def monitor():
     global last_hf
@@ -2349,6 +2345,9 @@ async def info_command(update, context):
     report = get_full_report()
     await update.message.reply_text(report, parse_mode="HTML")
 if __name__ == "__main__":
+    # Запуск Flask в отдельном потоке
+    flask_thread = threading.Thread(target=start_flask, daemon=True)
+    flask_thread.start()
     # Запуск планировщика в отдельном потоке
     scheduler_thread = threading.Thread(target=run_scheduler, daemon=True)
     scheduler_thread.start()
