@@ -4,7 +4,7 @@ import schedule
 from web3 import Web3
 from dotenv import load_dotenv
 import asyncio
-
+from telegram.ext import Application, CommandHandler
 from flask import Flask
 import threading
 
@@ -2276,7 +2276,9 @@ async def hf_command(update, context):
         await update.message.reply_text(f"Текущий Health Factor: {hf:.2f}")
     else:
         await update.message.reply_text("Не удалось получить Health Factor.")
-
+def get_full_report():
+    # Здесь можно собрать и вернуть подробный отчёт по аккаунту
+    return "<b>Отчёт:</b>\nHealth Factor: {:.2f}".format(get_health_factor())
 async def info_command(update, context):
     report = get_full_report()
     await update.message.reply_text(report, parse_mode="HTML")
