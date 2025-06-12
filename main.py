@@ -2270,12 +2270,16 @@ def run_scheduler(application):
         except Exception as e:
             print(f"Ошибка в основном цикле: {e}")
 
-async def hf_command(update, context):
+async def hf_command(update, context: ContextTypes.DEFAULT_TYPE):
     hf = get_health_factor()
     if hf is not None:
         await update.message.reply_text(f"Текущий Health Factor: {hf:.2f}")
     else:
         await update.message.reply_text("Не удалось получить Health Factor.")
+
+async def info_command(update, context: ContextTypes.DEFAULT_TYPE):
+    report = get_full_report()
+    await update.message.reply_text(report, parse_mode="HTML")
 def get_full_report():
     try:
         borrow_value = contract.functions.borrowBalanceOf(USER_ADDRESS).call()
@@ -2321,9 +2325,7 @@ def get_full_report():
         return "\n".join(lines)
     except Exception as e:
         return f"Ошибка при формировании отчёта: {e}"
-async def info_command(update, context):
-    report = get_full_report()
-    await update.message.reply_text(report, parse_mode="HTML")
+
 
 def run_telegram_bot():
     application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
