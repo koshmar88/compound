@@ -2234,6 +2234,14 @@ def get_health_factor():
     except Exception as e:
         print(f"Ошибка при расчёте HF: {e}")
         return None
+    
+def get_health_factor_with_retry(retries=3, delay=5):
+    for _ in range(retries):
+        hf = get_health_factor()
+        if hf is not None:
+            return hf
+        time.sleep(delay)
+    return None
 
 async def send_notification(message, application):
     try:
@@ -2244,8 +2252,9 @@ async def send_notification(message, application):
 
 async def monitor(application):
     global last_hf
-    hf = get_health_factor()
+    hf = get_health_factor_with_retry()
     if hf is None:
+        print("Не удалось получить HF после нескольких попыток.")
         return
     if last_hf is not None and abs(hf - last_hf) >= 0.02:
         direction = "снизился" if hf < last_hf else "вырос"
@@ -2270,7 +2279,7 @@ def run_scheduler(application):
             print(f"Ошибка в основном цикле: {e}")
 
 async def hf_command(update, context: ContextTypes.DEFAULT_TYPE):
-    hf = get_health_factor()
+    hf = get_health_factor_with_retry()
     if hf is not None:
         await update.message.reply_text(f"Текущий Health Factor: {hf:.2f}")
     else:
@@ -2324,7 +2333,14 @@ def get_full_report():
         return "\n".join(lines)
     except Exception as e:
         return f"Ошибка при формировании отчёта: {e}"
-
+    
+def get_full_report_with_retry(retries=3, delay=2):
+    for i in range(retries):
+        report = get_full_report()
+        if not report.startswith("Ошибка"):
+            return report
+        time.sleep(delay)
+    return report
 
 def run_telegram_bot():
     application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
