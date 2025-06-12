@@ -2282,12 +2282,12 @@ def get_full_report():
         borrow_value_usdt = borrow_value / 1e6
 
         target_assets = {
-            Web3.to_checksum_address("0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"): {"name": "WETH", "decimals": 18},
-            Web3.to_checksum_address("0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599"): {"name": "WBTC", "decimals": 8},
-            Web3.to_checksum_address("0x7f39c581f595b53c5cb19bd0b3f8da6c935e2ca0"): {"name": "wstETH", "decimals": 18},
+            Web3.to_checksum_address("0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"): {"name": "WETH", "decimals": 18, "emoji": "🟣"},
+            Web3.to_checksum_address("0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599"): {"name": "WBTC", "decimals": 8, "emoji": "🟠"},
+            Web3.to_checksum_address("0x7f39c581f595b53c5cb19bd0b3f8da6c935e2ca0"): {"name": "wstETH", "decimals": 18, "emoji": "🔵"},
         }
 
-        lines = []
+        lines = ["<b>📊 Compound III Portfolio</b>", "-----------------------------"]
         collateral_value = 0
         for asset, info in target_assets.items():
             try:
@@ -2295,6 +2295,7 @@ def get_full_report():
                 price_feed = asset_info[2]
                 decimals = info["decimals"]
                 name = info["name"]
+                emoji = info.get("emoji", "")
                 collateral_factor = asset_info[4] / 1e18
 
                 balance = contract.functions.collateralBalanceOf(USER_ADDRESS, asset).call()
@@ -2305,18 +2306,19 @@ def get_full_report():
                 usd_value = balance_token * price_usdt * collateral_factor
 
                 lines.append(
-                    f"{name}: <b>{balance_token:.6f}</b> x <b>{price_usdt:.2f}</b> x <b>{collateral_factor:.3f}</b> = <b>{usd_value:.2f} USDT</b>"
+                    f"{emoji} <b>{name}</b>: {balance_token:.6f} × {price_usdt:.2f} × {collateral_factor:.3f} = <b>{usd_value:.2f} USDT</b>"
                 )
                 collateral_value += usd_value
             except Exception as e:
                 lines.append(f"{info['name']}: ошибка получения данных ({e})")
 
+        lines.append("-----------------------------")
         hf = collateral_value / borrow_value_usdt if borrow_value_usdt > 0 else float('inf')
-        lines.append(f"\n<b>Health Factor:</b> <b>{hf:.2f}</b>")
-        lines.append(f"<b>Общий долг:</b> <b>{borrow_value_usdt:.2f} USDT</b>")
-        lines.append(f"<b>Общая стоимость залога (с учётом collateral factor):</b> <b>{collateral_value:.2f} USDT</b>")
+        lines.append(f"💡 <b>Health Factor:</b> <code>{hf:.2f}</code>")
+        lines.append(f"💸 <b>Общий долг:</b> <code>{borrow_value_usdt:.2f} USDT</code>")
+        lines.append(f"💰 <b>Залог (с учётом collateral factor):</b> <code>{collateral_value:.2f} USDT</code>")
 
-        return "<b>Отчёт:</b>\n" + "\n".join(lines)
+        return "\n".join(lines)
     except Exception as e:
         return f"Ошибка при формировании отчёта: {e}"
 async def info_command(update, context):
