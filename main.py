@@ -4,10 +4,8 @@ import schedule
 from web3 import Web3
 from dotenv import load_dotenv
 import asyncio
-from telegram.ext import Application, CommandHandler
-from flask import Flask
 import threading
-
+from telegram.ext import Application, CommandHandler, ContextTypes
 app = Flask(__name__)
 
 @app.route("/")
