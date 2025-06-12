@@ -2277,8 +2277,48 @@ async def hf_command(update, context):
     else:
         await update.message.reply_text("Не удалось получить Health Factor.")
 def get_full_report():
-    # Здесь можно собрать и вернуть подробный отчёт по аккаунту
-    return "<b>Отчёт:</b>\nHealth Factor: {:.2f}".format(get_health_factor())
+    try:
+        borrow_value = contract.functions.borrowBalanceOf(USER_ADDRESS).call()
+        borrow_value_usdt = borrow_value / 1e6
+
+        target_assets = {
+            Web3.to_checksum_address("0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"): {"name": "WETH", "decimals": 18},
+            Web3.to_checksum_address("0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599"): {"name": "WBTC", "decimals": 8},
+            Web3.to_checksum_address("0x7f39c581f595b53c5cb19bd0b3f8da6c935e2ca0"): {"name": "wstETH", "decimals": 18},
+        }
+
+        lines = []
+        collateral_value = 0
+        for asset, info in target_assets.items():
+            try:
+                asset_info = contract.functions.getAssetInfoByAddress(asset).call()
+                price_feed = asset_info[2]
+                decimals = info["decimals"]
+                name = info["name"]
+                collateral_factor = asset_info[4] / 1e18
+
+                balance = contract.functions.collateralBalanceOf(USER_ADDRESS, asset).call()
+                price = contract.functions.getPrice(price_feed).call()
+
+                balance_token = balance / (10 ** decimals)
+                price_usdt = price / 1e8
+                usd_value = balance_token * price_usdt * collateral_factor
+
+                lines.append(
+                    f"{name}: <b>{balance_token:.6f}</b> x <b>{price_usdt:.2f}</b> x <b>{collateral_factor:.3f}</b> = <b>{usd_value:.2f} USDT</b>"
+                )
+                collateral_value += usd_value
+            except Exception as e:
+                lines.append(f"{info['name']}: ошибка получения данных ({e})")
+
+        hf = collateral_value / borrow_value_usdt if borrow_value_usdt > 0 else float('inf')
+        lines.append(f"\n<b>Health Factor:</b> <b>{hf:.2f}</b>")
+        lines.append(f"<b>Общий долг:</b> <b>{borrow_value_usdt:.2f} USDT</b>")
+        lines.append(f"<b>Общая стоимость залога (с учётом collateral factor):</b> <b>{collateral_value:.2f} USDT</b>")
+
+        return "<b>Отчёт:</b>\n" + "\n".join(lines)
+    except Exception as e:
+        return f"Ошибка при формировании отчёта: {e}"
 async def info_command(update, context):
     report = get_full_report()
     await update.message.reply_text(report, parse_mode="HTML")
