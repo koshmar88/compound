@@ -2338,22 +2338,26 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def monitor(application):
     global last_hf
+    print("[MONITOR] Monitoring task started")
     while True:
-        hf = get_health_factor_with_retry()
-        if hf is None:
-            print("Не удалось получить HF после нескольких попыток.")
-        else:
-            print(f"[MONITOR] last_hf={last_hf}, new_hf={hf}")
-            if last_hf is not None and abs(hf - last_hf) >= 0.02:
-                direction = "снизился" if hf < last_hf else "вырос"
-                message = (
-                    f"⚠️ Health Factor {direction}!\n"
-                    f"Было: {last_hf:.2f}\n"
-                    f"Стало: {hf:.2f}\n"
-                    f"Разница: {abs(hf - last_hf):.2f}\n"
-                )
-                await send_notification(message, application)
-            last_hf = hf
+        try:
+            hf = get_health_factor_with_retry()
+            if hf is None:
+                print("Не удалось получить HF после нескольких попыток.")
+            else:
+                print(f"[MONITOR] last_hf={last_hf}, new_hf={hf}")
+                if last_hf is not None and abs(hf - last_hf) >= 0.01:
+                    direction = "снизился" if hf < last_hf else "вырос"
+                    message = (
+                        f"⚠️ Health Factor {direction}!\n"
+                        f"Было: {last_hf:.2f}\n"
+                        f"Стало: {hf:.2f}\n"
+                        f"Разница: {abs(hf - last_hf):.2f}\n"
+                    )
+                    await send_notification(message, application)
+                last_hf = hf
+        except Exception as e:
+            print(f"[MONITOR ERROR] {e}")
         await asyncio.sleep(300)  # 5 минут
 async def post_init(application):
     application.create_task(monitor(application))
