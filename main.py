@@ -1,12 +1,14 @@
 import os
 import time
-import schedule
 from flask import Flask
 from web3 import Web3
 from dotenv import load_dotenv
 import asyncio
 import threading
 from telegram.ext import Application, CommandHandler, ContextTypes
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram.ext import CallbackQueryHandler
+
 app = Flask(__name__)
 
 @app.route("/")
@@ -2250,34 +2252,6 @@ async def send_notification(message, application):
     except Exception as e:
         print(f"Ошибка отправки сообщения в Telegram: {e}")
 
-async def monitor(application):
-    global last_hf
-    hf = get_health_factor_with_retry()
-    if hf is None:
-        print("Не удалось получить HF после нескольких попыток.")
-        return
-    if last_hf is not None and abs(hf - last_hf) >= 0.02:
-        direction = "снизился" if hf < last_hf else "вырос"
-        message = (
-            f"⚠️ Health Factor {direction}!\n"
-            f"Было: {last_hf:.2f}\n"
-            f"Стало: {hf:.2f}\n"
-            f"Разница: {abs(hf - last_hf):.2f}\n"
-        )
-        await send_notification(message, application)
-    last_hf = hf
-
-def run_scheduler(application):
-    print("Запуск мониторинга Health Factor для Compound III...")
-    # Немедленный вызов для проверки
-    asyncio.run(monitor(application))
-    while True:
-        try:
-            schedule.run_pending()
-            time.sleep(1)
-        except Exception as e:
-            print(f"Ошибка в основном цикле: {e}")
-
 async def hf_command(update, context: ContextTypes.DEFAULT_TYPE):
     hf = get_health_factor_with_retry()
     if hf is not None:
@@ -2342,20 +2316,57 @@ def get_full_report_with_retry(retries=3, delay=2):
         time.sleep(delay)
     return report
 
+async def start_command(update, context):
+    keyboard = [
+        [InlineKeyboardButton("Проверить состояние", callback_data="check_hf")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await update.message.reply_text(
+        "Добро пожаловать! Нажмите кнопку ниже для проверки состояния:",
+        reply_markup=reply_markup
+    )
+
+async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    if query.data == "check_hf":
+        hf = get_health_factor_with_retry()
+        if hf is not None:
+            await query.edit_message_text(f"Текущий Health Factor: {hf:.2f}")
+        else:
+            await query.edit_message_text("Не удалось получить Health Factor.")
+
+async def monitor(application):
+    global last_hf
+    while True:
+        hf = get_health_factor_with_retry()
+        if hf is None:
+            print("Не удалось получить HF после нескольких попыток.")
+        else:
+            print(f"[MONITOR] last_hf={last_hf}, new_hf={hf}")
+            if last_hf is not None and abs(hf - last_hf) >= 0.02:
+                direction = "снизился" if hf < last_hf else "вырос"
+                message = (
+                    f"⚠️ Health Factor {direction}!\n"
+                    f"Было: {last_hf:.2f}\n"
+                    f"Стало: {hf:.2f}\n"
+                    f"Разница: {abs(hf - last_hf):.2f}\n"
+                )
+                await send_notification(message, application)
+            last_hf = hf
+        await asyncio.sleep(300)  # 5 минут
+async def post_init(application):
+    application.create_task(monitor(application))
+
 def run_telegram_bot():
-    application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
+    application = Application.builder().token(TELEGRAM_BOT_TOKEN).post_init(post_init).build()
+    application.add_handler(CommandHandler("start", start_command))
     application.add_handler(CommandHandler("hf", hf_command))
     application.add_handler(CommandHandler("info", info_command))
-    # Планировщик с передачей application
-    schedule.every(5).minutes.do(lambda: asyncio.run(monitor(application)))
-    # Запуск планировщика в отдельном потоке
-    scheduler_thread = threading.Thread(target=run_scheduler, args=(application,), daemon=True)
-    scheduler_thread.start()
+    application.add_handler(CallbackQueryHandler(button_callback))
     application.run_polling()
-
+    
 if __name__ == "__main__":
-    # Запуск Flask в отдельном потоке
     flask_thread = threading.Thread(target=start_flask, daemon=True)
     flask_thread.start()
-    # Запуск Telegram-бота (и планировщика внутри него)
     run_telegram_bot()
